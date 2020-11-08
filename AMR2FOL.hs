@@ -14,19 +14,19 @@ type Role     = String
 type Cont     = String -> Formula Variable
 -- list of (text, type) tokens
 type Tokens   = [(String, String)]
--- list of out-going (role, UMR) edges
-type Edges    = [(Role, UMR)]
+-- list of out-going (role, AMR) edges
+type Edges    = [(Role, AMR)]
 
-        -- constants are UMRs
-data UMR = C Constant
-        -- variables are UMRs
+        -- constants are AMRs
+data AMR = C Constant
+        -- variables are AMRs
          | X Variable
-        -- instance assignments (possibly with out-going roles) are UMRs
+        -- instance assignments (possibly with out-going roles) are AMRs
          | A Variable Property Edges
-        -- projection phenomena are UMRs
+        -- projection phenomena are AMRs
          | P Variable Property Edges
 
-instance Show UMR where
+instance Show AMR where
     show (C c)         = intercalate " " ["C", show c]
     show (X x)         = intercalate " " ["X", show x]
     show (A x p edges) = intercalate " " ["A", show x, (\ (Atom q y) -> show q)
@@ -51,13 +51,13 @@ instance (Show a, Eq a) => Show (Formula a) where
 
 -- main function
 process :: String -> Formula Variable
-process s = umr2fol (str2umr s) (\ _ -> Top)
+process s = amr2fol (str2amr s) (\ _ -> Top)
 
--- turn string into structured UMR
-str2umr :: String -> UMR
-str2umr s = snd . tok2nod $ str2tok s
+-- turn string into structured AMR
+str2amr :: String -> AMR
+str2amr s = snd . tok2nod $ str2tok s
 
--- regular expressions for parsing UMRs
+-- regular expressions for parsing AMRs
 -- based on https://github.com/goodmami/penman
 string = "\\\"[^\\\"]*(?:\\\\.[^\\\"]*)*\\\""
 role   = ":[^\\s()\\/:~]*"
@@ -90,7 +90,7 @@ str2tok s | not $ null text = (text, typ) : str2tok t
 -- parse a penman node from tokens
 -- roughly corresponds to penman._parse._parse_node
 -- tok2nod :: starting tokens -> (remaining tokens, node)
-tok2nod :: Tokens -> (Tokens, UMR)
+tok2nod :: Tokens -> (Tokens, AMR)
 tok2nod ((_, "lparen") : (v, "symbol") : (_, "slash" ) : (p, "symbol") : t)
           = (tokens, A v (\ x -> Atom p [x]) edges)
           where (tokens, edges) = tok2edg (t, [])
@@ -138,29 +138,29 @@ tok2edg ((_, "rparen") : t, edges)
           = (t, edges) -- base case
 tok2edg _ = error "Parsing error: tok2edg" -- fail
 
--- turn structured UMR into formula using continuations
-umr2fol :: UMR -> Cont -> Formula Variable
-umr2fol (C c)         = \ k -> k c
-umr2fol (X x)         = \ k -> k x
-umr2fol (P x p edges) = \ k -> umr2fol (A x p edges) k
+-- turn structured AMR into formula using continuations
+amr2fol :: AMR -> Cont -> Formula Variable
+amr2fol (C c)         = \ k -> k c
+amr2fol (X x)         = \ k -> k x
+amr2fol (P x p edges) = \ k -> amr2fol (A x p edges) k
 -- wide-scope negation
-umr2fol (A x p (("polarity", umr@(P _ _ _)) : edges))
-                      = \ k -> Neg (umr2fol (A x p edges) k)
+amr2fol (A x p (("polarity", amr@(P _ _ _)) : edges))
+                      = \ k -> Neg (amr2fol (A x p edges) k)
 -- narrow-scope negation
-umr2fol (A x p (("polarity", umr) : edges))
-                      = \ k -> umr2fol (A x (\ m -> Neg (p m)) edges) k
+amr2fol (A x p (("polarity", amr) : edges))
+                      = \ k -> amr2fol (A x (\ m -> Neg (p m)) edges) k
 -- universal quantification
-umr2fol (A x p (("quant", umr) : edges))
-                      = \ k -> Neg (umr2fol (A x p edges) (\ m -> Neg (k m)))
+amr2fol (A x p (("quant", amr) : edges))
+                      = \ k -> Neg (amr2fol (A x p edges) (\ m -> Neg (k m)))
 -- projection phenomena
-umr2fol (A x p ((r, umr@(P _ _ _)) : edges))
-                      = \ k -> umr2fol umr
-                       (\ n -> umr2fol (A x p edges)
+amr2fol (A x p ((r, amr@(P _ _ _)) : edges))
+                      = \ k -> amr2fol amr
+                       (\ n -> amr2fol (A x p edges)
                        (\ m -> Conj [Atom r [m, n], k m]))
 -- instance assignments
-umr2fol (A x p ((r, umr) : edges))
-                      = \ k -> umr2fol (A x p edges)
-                       (\ m -> Conj [umr2fol umr
+amr2fol (A x p ((r, amr) : edges))
+                      = \ k -> amr2fol (A x p edges)
+                       (\ m -> Conj [amr2fol amr
                        (\ n -> Atom r [m, n]), k m])
 -- base case
-umr2fol (A x p [])    = \ k -> Exists x (Conj [p x, k x])
+amr2fol (A x p [])    = \ k -> Exists x (Conj [p x, k x])
